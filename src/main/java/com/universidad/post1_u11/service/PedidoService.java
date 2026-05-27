@@ -1,49 +1,51 @@
 package com.universidad.post1_u11.service;
 
-import java.util.List;
-import org.springframework.beans.factory.annotation.Autowired;
+import java.util.Arrays;
 import org.springframework.stereotype.Service;
+
+import com.universidad.post1_u11.model.CodigoDescuento;
+import com.universidad.post1_u11.model.DatosCliente;
+import com.universidad.post1_u11.model.LineaPedido;
 import com.universidad.post1_u11.model.Pedido;
-import com.universidad.post1_u11.model.Producto;
 import com.universidad.post1_u11.repository.PedidoRepository;
 
 @Service
 public class PedidoService {
-    @Autowired // Code Smell: inyeccion en campo
-    private PedidoRepository repo;
+ private final PedidoRepository repo;
+ private final NotificacionService notificacion;
+ public PedidoService(PedidoRepository repo,
+ NotificacionService notificacion) {
+ this.repo = repo;
+ this.notificacion = notificacion;
+ }
 
-    // Long Method: valida, calcula, notifica y persiste en un solo metodo
-    public String procesarPedido(Long clienteId, String clienteNombre,
-            String clienteEmail, String clienteTelefono,
-            String clienteDireccion, String clienteCiudad,
-            String clienteCodigoPostal, List<Long> productosIds,
-            List<Integer> cantidades, String metodoPago,
-            boolean esUrgente, String codigoDescuento) {
-        // Validacion del cliente (deveria ser metodo separado)
-        if (clienteId == null || clienteNombre == null
-                || clienteNombre.isBlank() || clienteEmail == null
-                || !clienteEmail.contains("@")) {
-            return "ERROR_CLIENTE";
-        }
-        // Calculo de total (Long Method smell)
-        double total = 0;
-        for (int i = 0; i < productosIds.size(); i++) {
-            Producto p = repo.findProductoById(productosIds.get(i));
-            if (p == null)
-                return "ERROR_PRODUCTO";
-            total += p.getPrecio() * cantidades.get(i);
-        }
-        // Descuento (logica de negocio mezclada)
-        if (codigoDescuento != null && codigoDescuento.equals("VIP10")) {
-            total = total * 0.90;
-        } else if (codigoDescuento != null &&
-                codigoDescuento.equals("NEW20")) {
-            total = total * 0.80;
-        }
-        // Notificacion (responsabilidad ajena)
-        System.out.println("Enviando email a: " + clienteEmail);
-        System.out.println("Pedido urgente: " + esUrgente);
-        Pedido pedido = new Pedido(clienteId, clienteNombre, total);
+
+    public String procesarPedido(DatosCliente cliente,
+        LineaPedido[] lineas,
+        boolean esUrgente,
+        CodigoDescuento descuento) {
+        double total = calcularTotal(lineas);
+        double totalConDescuento = aplicarDescuento(total, descuento);
+        notificarCliente(cliente, esUrgente);
+        return persistirPedido(cliente, totalConDescuento);
+    }
+
+    private double calcularTotal(LineaPedido[] lineas) {
+        return Arrays.stream(lineas)
+                .mapToDouble(l -> l.getPrecioUnitario() * l.getCantidad())
+                .sum();
+    }
+
+    private double aplicarDescuento(double total, CodigoDescuento d) {
+        return d != null ? total * (1 - d.getPorcentaje()) : total;
+    }
+
+    private void notificarCliente(DatosCliente cliente, boolean esUrgente) {
+        this.notificacion.notificarPedido(cliente, esUrgente);
+    }
+
+    private String persistirPedido(DatosCliente cliente, double total) {
+        Pedido pedido = new Pedido(1L, cliente.getNombre(), total);
         return "OK_" + repo.save(pedido).getId();
     }
 }
